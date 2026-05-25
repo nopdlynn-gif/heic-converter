@@ -1,35 +1,32 @@
 const sharp = require('sharp');
 
 export default async function handler(req, res) {
-  // CORS 설정
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  // CORS 헤더 설정 (더 명시적으로)
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
+  );
 
-  // OPTIONS 요청 처리
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
   }
 
-  // POST 요청만 처리
   if (req.method !== 'POST') {
-    return res.status(400).json({ 
-      error: 'POST 요청만 허용됩니다',
-      method: req.method 
-    });
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
   }
 
   try {
     const { base64 } = req.body;
     
     if (!base64) {
-      return res.status(400).json({ 
-        error: 'base64 필드가 필요합니다' 
-      });
+      res.status(400).json({ error: 'base64 필드가 필요합니다' });
+      return;
     }
-
-    console.log('📥 이미지 변환 요청');
 
     // Base64를 Buffer로 변환
     const imageBuffer = Buffer.from(base64, 'base64');
@@ -38,8 +35,6 @@ export default async function handler(req, res) {
     const jpegBuffer = await sharp(imageBuffer)
       .jpeg({ quality: 80, progressive: true })
       .toBuffer();
-
-    console.log('✓ JPEG 변환 완료');
 
     // 변환된 이미지를 Base64로 인코딩
     const jpegBase64 = jpegBuffer.toString('base64');
@@ -53,7 +48,6 @@ export default async function handler(req, res) {
     });
 
   } catch (error) {
-    console.error('❌ 변환 오류:', error);
     res.status(500).json({
       error: '이미지 변환 실패',
       message: error.message
