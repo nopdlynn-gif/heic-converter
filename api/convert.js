@@ -1,56 +1,80 @@
 const sharp = require('sharp');
 
 export default async function handler(req, res) {
-  // CORS 헤더 설정 (더 명시적으로)
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
-  );
+  // 모든 요청에 대해 CORS 헤더 설정
+  const origin = req.headers.origin || '*';
+  
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Max-Age', '86400');
 
+  // OPTIONS 요청 처리
   if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
+    return res.status(200).end();
   }
 
+  // POST만 처리
   if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Method not allowed' });
-    return;
+    return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
   try {
-    const { base64 } = req.body;
-    
-    if (!base64) {
-      res.status(400).json({ error: 'base64 필드가 필요합니다' });
-      return;
+    let base64Data = req.body?.base64;
+
+    if (!base64Data) {
+      return res.status(400).json({ 
+        error: 'base64 데이터가 필요합니다',
+        received: Object.keys(req.body || {})
+      });
     }
 
-    // Base64를 Buffer로 변환
-    const imageBuffer = Buffer.from(base64, 'base64');
+    // Base64 문자열에서 data URL prefix 제거
+    if (base64Data.includes(',')) {
+      base64Data = base64Data.split(',')[1];
+    }
 
-    // Sharp를 사용해 HEIC/JPG/PNG → JPG로 변환
+    console.log('변환 시작:', {
+      base64Length: base64Data.length,
+      timestamp: new Date().toISOString()
+    });
+
+    // Buffer로 변환
+    const imageBuffer = Buffer.from(base64Data, 'base64');
+    console.log('Buffer 생성:', imageBuffer.length, 'bytes');
+
+    // Sharp로 변환
     const jpegBuffer = await sharp(imageBuffer)
-      .jpeg({ quality: 80, progressive: true })
+      .jpeg({ 
+        quality: 80,
+        progressive: true,
+        mozjpeg: true
+      })
       .toBuffer();
 
-    // 변환된 이미지를 Base64로 인코딩
-    const jpegBase64 = jpegBuffer.toString('base64');
-    const dataUrl = `data:image/jpeg;base64,${jpegBase64}`;
+    console.log('변환 완료:', jpegBuffer.length, 'bytes');
 
-    res.status(200).json({
+    // 결과를 Base64로 인코딩
+    const resultBase64 = jpegBuffer.toString('base64');
+    const dataUrl = `data:image/jpeg;base64,${resultBase64}`;
+
+    return res.status(200).json({
       success: true,
-      base64: jpegBase64,
+      base64: resultBase64,
       dataUrl: dataUrl,
-      sizeKB: (jpegBuffer.length / 1024).toFixed(2)
+      sizeKB: (jpegBuffer.length / 1024).toFixed(2),
+      originalSizeKB: (imageBuffer.length / 1024).toFixed(2),
+      timestamp: new Date().toISOString()
     });
 
   } catch (error) {
-    res.status(500).json({
+    console.error('변환 실패:', error);
+    
+    return res.status(500).json({
+      success: false,
       error: '이미지 변환 실패',
-      message: error.message
+      message: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 }
